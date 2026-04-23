@@ -24,10 +24,10 @@ def count_fingers(hand_landmarks):
     finger_count = 0
 
     # Check thumb (special: uses x-axis, thumb moves sideways)
-    thumb_tip_x = hand_landmarks[FINGER_TIPS[0]].x
-    thumb_base_x = hand_landmarks[FINGER_BASES[0]].x
+    thumb_tip_y = hand_landmarks[FINGER_TIPS[0]].y
+    thumb_base_y = hand_landmarks[FINGER_BASES[0]].y
 
-    if thumb_tip_x > thumb_base_x:
+    if thumb_tip_y > thumb_base_y:
         finger_count += 1
 
     # Check other 4 fingers (use y-axis, tip should be above base)
