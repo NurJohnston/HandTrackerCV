@@ -3,6 +3,7 @@ import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 import numpy as np
+import math
 
 # ============================================================================
 # FINGER LANDMARK INDICES
@@ -16,22 +17,56 @@ FINGER_BASES = [2, 5, 9, 13, 17]
 
 
 # ============================================================================
+# THUMB CURL DETECTION (Distance between point 2 and point 4)
+# ============================================================================
+
+def is_thumb_curled(hand_landmarks):
+    """
+    Detect if thumb is curled by measuring distance between point 2 and point 4.
+
+    Returns:
+        True: thumb is curled (tip close to base)
+        False: thumb is raised (tip far from base)
+    """
+    thumb_base = hand_landmarks[2]  # Point 2 (base of thumb)
+    thumb_tip = hand_landmarks[4]  # Point 4 (tip of thumb)
+
+    # Calculate Euclidean distance between base and tip
+    distance = math.sqrt(
+        (thumb_tip.x - thumb_base.x) ** 2 +
+        (thumb_tip.y - thumb_base.y) ** 2
+    )
+
+    # Adjust this threshold based on testing (0.1 is a starting point)
+    # Larger threshold = more sensitive to curl detection
+    CURL_THRESHOLD = 0.12
+
+    return distance < CURL_THRESHOLD
+
+
+# ============================================================================
 # FINGER COUNTING FUNCTION
 # ============================================================================
 
 def count_fingers(hand_landmarks):
-    """Count how many fingers are raised"""
+    """
+    Count how many fingers are raised.
+    Thumb is counted ONLY if NOT curled.
+    Other fingers use y-axis comparison.
+    """
     finger_count = 0
 
-    # Check thumb (special: uses x-axis, thumb moves sideways)
-    thumb_tip_y = hand_landmarks[FINGER_TIPS[0]].y
-    thumb_base_y = hand_landmarks[FINGER_BASES[0]].y
-
-    if thumb_tip_y > thumb_base_y:
+    # ================================================================
+    # THUMB (Index 4) - Count only if NOT curled
+    # ================================================================
+    if not is_thumb_curled(hand_landmarks):
         finger_count += 1
 
-    # Check other 4 fingers (use y-axis, tip should be above base)
-    for i in range(1, 5):
+    # ================================================================
+    # INDEX, MIDDLE, RING, PINKY FINGERS (indices 8, 12, 16, 20)
+    # ================================================================
+    # For these fingers: tip should be ABOVE base (smaller y) to be raised
+    for i in range(1, 5):  # i = 1 to 4 (index to pinky)
         tip_y = hand_landmarks[FINGER_TIPS[i]].y
         base_y = hand_landmarks[FINGER_BASES[i]].y
 
@@ -154,14 +189,14 @@ def main():
                 # Draw landmarks on frame
                 draw_landmarks(frame, hand_landmarks)
 
-                # Count fingers
+                # Count fingers (thumb curled detection included)
                 finger_count = count_fingers(hand_landmarks)
 
-                # Get position for text (use thumb tip)
+                # Get position for text (use wrist or base of hand)
                 h, w, _ = frame.shape
-                thumb_tip = hand_landmarks[4]
-                text_x = int(thumb_tip.x * w) - 50
-                text_y = int(thumb_tip.y * h) - 30
+                wrist = hand_landmarks[0]  # Use wrist position for text
+                text_x = int(wrist.x * w) - 50
+                text_y = int(wrist.y * h) - 50
 
         # Ensure text stays inside frame
         if text_x < 10:
