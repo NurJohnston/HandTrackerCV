@@ -13,65 +13,61 @@ import math
 FINGER_TIPS = [4, 8, 12, 16, 20]
 
 # Base indices: Thumb(2), Index(5), Middle(9), Ring(13), Pinky(17)
-FINGER_BASES = [2, 5, 9, 13, 17]
+FINGER_BASES = [2, 6, 10, 14, 18]
 
 
 # ============================================================================
-# THUMB CURL DETECTION (Distance between point 2 and point 4)
+# FINGER COUNTING FUNCTION (Uses handedness for thumb detection)
 # ============================================================================
 
-def is_thumb_curled(hand_landmarks):
-    """
-    Detect if thumb is curled by measuring distance between point 2 and point 4.
-
-    Returns:
-        True: thumb is curled (tip close to base)
-        False: thumb is raised (tip far from base)
-    """
-    thumb_base = hand_landmarks[2]  # Point 2 (base of thumb)
-    thumb_tip = hand_landmarks[4]  # Point 4 (tip of thumb)
-
-    # Calculate Euclidean distance between base and tip
-    distance = math.sqrt(
-        (thumb_tip.x - thumb_base.x) ** 2 +
-        (thumb_tip.y - thumb_base.y) ** 2
-    )
-
-    # Adjust this threshold based on testing (0.1 is a starting point)
-    # Larger threshold = more sensitive to curl detection
-    CURL_THRESHOLD = 0.12
-
-    return distance < CURL_THRESHOLD
-
-
-# ============================================================================
-# FINGER COUNTING FUNCTION
-# ============================================================================
-
-def count_fingers(hand_landmarks):
+def count_fingers(hand_landmarks, handedness):
     """
     Count how many fingers are raised.
-    Thumb is counted ONLY if NOT curled.
-    Other fingers use y-axis comparison.
+
+    Parameters:
+        hand_landmarks: MediaPipe hand landmark object
+        handedness: "Left" or "Right" string from MediaPipe detection
+
+    Returns:
+        integer from 0-5 (number of raised fingers)
     """
     finger_count = 0
 
     # ================================================================
-    # THUMB (Index 4) - Count only if NOT curled
+    # THUMB DETECTION (Index 4) - DIFFERENT FOR LEFT VS RIGHT HAND
     # ================================================================
-    if not is_thumb_curled(hand_landmarks):
+    thumb_tip_x = hand_landmarks[4].x  # Point 4 (thumb tip)
+    thumb_base_x = hand_landmarks[2].x  # Point 2 (thumb base)
+
+    if handedness == "Right":
+        # Right hand: thumb raised when tip is to the RIGHT of base
+        if thumb_tip_x > thumb_base_x:
+            finger_count += 1
+    else:  # Left hand
+        # Left hand: thumb raised when tip is to the LEFT of base
+        if thumb_tip_x < thumb_base_x:
+            finger_count += 1
+
+    # ================================================================
+    # INDEX, MIDDLE, RING, PINKY (SAME LOGIC FOR BOTH HANDS)
+    # ================================================================
+    # For these: tip should be ABOVE base (smaller y) to be raised
+
+    # Index finger (tip: 8, base: 5)
+    if hand_landmarks[8].y < hand_landmarks[6].y:
         finger_count += 1
 
-    # ================================================================
-    # INDEX, MIDDLE, RING, PINKY FINGERS (indices 8, 12, 16, 20)
-    # ================================================================
-    # For these fingers: tip should be ABOVE base (smaller y) to be raised
-    for i in range(1, 5):  # i = 1 to 4 (index to pinky)
-        tip_y = hand_landmarks[FINGER_TIPS[i]].y
-        base_y = hand_landmarks[FINGER_BASES[i]].y
+    # Middle finger (tip: 12, base: 9)
+    if hand_landmarks[12].y < hand_landmarks[10].y:
+        finger_count += 1
 
-        if tip_y < base_y:
-            finger_count += 1
+    # Ring finger (tip: 16, base: 13)
+    if hand_landmarks[16].y < hand_landmarks[14].y:
+        finger_count += 1
+
+    # Pinky finger (tip: 20, base: 17)
+    if hand_landmarks[20].y < hand_landmarks[18].y:
+        finger_count += 1
 
     return finger_count
 
@@ -136,7 +132,7 @@ def main():
         base_options = python.BaseOptions(model_asset_path=model_filename)
         options = vision.HandLandmarkerOptions(
             base_options=base_options,
-            num_hands=1,
+            num_hands=2,  # Allow detecting both hands
             min_hand_detection_confidence=0.5,
             min_hand_presence_confidence=0.5,
             min_tracking_confidence=0.5
@@ -159,6 +155,7 @@ def main():
 
     print("Press 'q' to quit")
     print("Hold your hand up to the camera")
+    print("Both left and right hands are supported!")
 
     while True:
         # Read frame from camera
@@ -168,7 +165,7 @@ def main():
             break
 
         # Flip horizontally (mirror effect)
-        frame = cv2.flip(frame, 1)
+        ##frame = cv2.flip(frame, 1)
 
         # Convert BGR to RGB (MediaPipe expects RGB)
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -179,35 +176,44 @@ def main():
         # Detect hands
         detection_result = detector.detect(mp_image)
 
-        finger_count = 0
-        text_x = 50
-        text_y = 100
+        # Reset text position for multiple hands
+        y_offset = 0
 
         # If hand detected
         if detection_result.hand_landmarks:
-            for hand_landmarks in detection_result.hand_landmarks:
-                # Draw landmarks on frame
+            for i, hand_landmarks in enumerate(detection_result.hand_landmarks):
+                # Get handedness (Left or Right) from detection result
+                handedness = detection_result.handedness[i][0].category_name
+
+                # Draw
                 draw_landmarks(frame, hand_landmarks)
 
-                # Count fingers (thumb curled detection included)
-                finger_count = count_fingers(hand_landmarks)
+                # Count
+                finger_count = count_fingers(hand_landmarks, handedness)
 
-                # Get position for text (use wrist or base of hand)
+                # Get position for text (use wrist)
                 h, w, _ = frame.shape
-                wrist = hand_landmarks[0]  # Use wrist position for text
+                wrist = hand_landmarks[0]
+
+                # Offset each hand's text so they don't overlap
                 text_x = int(wrist.x * w) - 50
-                text_y = int(wrist.y * h) - 50
+                text_y = int(wrist.y * h) - 50 + y_offset
+                y_offset += 80  # Move down for next hand
 
-        # Ensure text stays inside frame
-        if text_x < 10:
-            text_x = 10
-        if text_y < 30:
-            text_y = 60
+                # Ensure text stays inside frame
+                if text_x < 10:
+                    text_x = 10
+                if text_y < 30:
+                    text_y = 60
 
-        # Display finger count
-        cv2.putText(frame, f"Fingers: {finger_count}",
-                    (text_x, text_y),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 0), 3)
+                # Display finger count with hand label
+                cv2.putText(frame, f"{handedness} Hand: {finger_count} fingers",
+                            (text_x, text_y),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+        else:
+            # No hand detected - show message
+            cv2.putText(frame, "No hand detected", (10, 100),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (100, 100, 100), 2)
 
         # Display instructions
         cv2.putText(frame, "Press 'q' to quit", (10, 30),
